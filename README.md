@@ -11,8 +11,8 @@ This MLCN implementation used the @XifengGuo CapsNet Keras implementation (https
 
 Some of the details of how to install and use it can be found in the CapsNet-Keras project README. To support multi-lanes we introduced some new command line arguments:
 
-- --lane_size  size of the lanes (an integer that should be greater or equal to one)
-- --lane_type  type of the lanes (1 to mlcn1 and 2 for mlcn2)
-- --num_lanes  number of lanes (an integer that should be greater or equal to 2)
-- --dataset    mnist or cifar10 dataset
-- --dropout    percentage of lanes being dropped out per batch
+- **--lane_size**  size of the lanes (an integer that should be greater or equal to one)
+- **--lane_type**  type of the lanes (1 to mlcn1 and 2 for mlcn2)
+- **--num_lanes**  number of lanes (an integer that should be greater or equal to 2)
+- **--dataset**    mnist or cifar10 dataset
+- **--dropout**    percentage of lanes being dropped out per batch
