@@ -137,7 +137,7 @@ class CapsuleLayer(layers.Layer):
         # then matmul: [input_dim_capsule] x [dim_capsule, input_dim_capsule]^T -> [dim_capsule].
         # inputs_hat.shape = [None, num_capsule, input_num_capsule, dim_capsule]
         
-        inputs_hat = K.batch_dot(inputs_tiled, K.tile(K.expand_dims(self.W,0), [100, 1, 1, 1, 1]), [3, 4])
+        inputs_hat = K.batch_dot(inputs_tiled, K.tile(K.expand_dims(self.W,0), [tf.shape(inputs_expand)[0], 1, 1, 1, 1]), [3, 4])
 
         # Begin: Routing algorithm ---------------------------------------------------------------------#
         # The prior for coupling coefficient, initialized as zeros.
@@ -192,7 +192,7 @@ def PrimaryCap(inputs, dim_capsule, n_channels, kernel_size, strides, padding, i
     output = layers.Conv2D(filters=dim_capsule*n_channels, kernel_size=kernel_size, strides=strides, padding=padding,
                            name='primarycap_conv2d'+str(i))(inputs)
   
-    outputs = layers.Reshape(target_shape=[-1, dim_capsule], name='primarycap_reshape'+str(i))(output)
+    outputs = layers.Reshape(target_shape=[int(int(output.shape[1]*output.shape[2]*output.shape[3])/dim_capsule), dim_capsule], name='primarycap_reshape'+str(i))(output)
     return layers.Lambda(squash, name='primarycap_squash'+str(i))(outputs)
 
 
@@ -207,4 +207,3 @@ def PrimaryCap(inputs, dim_capsule, n_channels, kernel_size, strides, padding):
     outputs = layers.Concatenate(axis=1)(outputs)
     return layers.Lambda(squash)(outputs)
 """
-
