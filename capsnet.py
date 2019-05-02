@@ -11,29 +11,33 @@ from capslayer import *
 
 K.set_image_data_format('channels_last')
 
-def Lane(laneID, n_class, lanesize, lanetype, lane_input, routings):
-    if (lanetype == 2):
-        output = layers.Conv2D(filters=lanesize*16, kernel_size=1, strides=1, padding='same', name='convs1-'+str(laneID))(lane_input)
-        output = layers.SeparableConv2D(filters=lanesize*16, kernel_size=6, strides=1, padding='valid', activation='relu', name='convs'+str(laneID))(output)
-        for j in range(3):
-            output = layers.Conv2D(filters=lanesize*16, kernel_size=3, strides=1, padding='same', activation='relu')(output)
+def Lane(laneID, n_class, lanesize, lanetype, lane_input, routings, stacked = 1):
+    primarycaps = []
+    output = layers.Conv2D(filters=lanesize*16, kernel_size=9, strides=1, padding='valid', activation='relu', name='conv1'+str(laneID)+'d0')(lane_input)
+    primarycaps = primarycaps + [PrimaryCap(output, dim_capsule=16, n_channels=lanesize*2, kernel_size=6, strides=2, padding='valid', i = laneID)]
+
+    for i in range(1, stacked):
+       reshaped = Lambda(lambda ls : K.expand_dims(ls, axis=-1))(primarycaps[-1])
+       output = layers.Conv2D(filters=lanesize*16, kernel_size=9, strides=1, padding='valid', activation='relu', name='conv1'+str(laneID)+'d'+str(i))(reshaped)
+       primarycaps = primarycaps + [PrimaryCap(output, dim_capsule=16, n_channels=lanesize*2, kernel_size=6, strides=3, padding='valid', i = laneID + 1000*i)]
+
+    if stacked == 1:
+        allprimarycaps = primarycaps[0]
     else:
-        output = layers.Conv2D(filters=lanesize*16, kernel_size=9, strides=1, padding='valid', activation='relu', name='conv1'+str(laneID))(lane_input)
+        allprimarycaps = Lambda(lambda ls : concatenate(ls, axis=1))(primarycaps)
 
-    convs = output
-
-    primarycaps = PrimaryCap(convs, dim_capsule=16, n_channels=lanesize*2, kernel_size=6, strides=2, padding='valid', i = laneID)
-    
-    digitcaps = CapsuleLayer(num_capsule=1, dim_capsule=n_class, routings=routings, batchsize = args.batch_size, name='digitcaps'+str(laneID))(primarycaps)
+    digitcaps = CapsuleLayer(num_capsule=1, dim_capsule=n_class, routings=routings, batchsize = args.batch_size, name='digitcaps'+str(laneID))(allprimarycaps)
 
     return digitcaps
 
-def LaneCapsNet(input_shape, n_class, routings, num_lanes = 4, lanesize = 1, lanetype = 1):
+
+def LaneCapsNet(input_shape, n_class, routings, num_lanes = 4, lanesize = 1, lanedepth = 1, lanetype = 1, gpus = 1):
     x = layers.Input(shape=input_shape)
 
     lanes = []
     for i in range(0, num_lanes):
-        lanes = lanes + [Lane(i, n_class, lanesize, lanetype, x, routings)]
+        with tf.device("/gpu:%d" % (i % gpus)):
+            lanes = lanes + [Lane(i, n_class, lanesize, lanetype, x, routings, stacked = lanedepth)]
 
     digitcaps1 = Lambda(lambda ls : K.permute_dimensions(concatenate(ls, axis=1), [0,2,1]))(lanes)
 
@@ -139,8 +143,8 @@ def load_cifar():
     # the data, shuffled and split between train and test sets
     #from keras.datasets import fashion_mnist
     #(x_train, y_train), (x_test, y_test) = fashion_mnist.load_data()
-    from keras.datasets import cifar10
-    (x_train, y_train), (x_test, y_test) = cifar10.load_data()
+    from keras.datasets import cifar100
+    (x_train, y_train), (x_test, y_test) = cifar100.load_data()
 
     x_train = x_train.reshape(-1, 32, 32, 3).astype('float32') / 255.
     x_test = x_test.reshape(-1, 32, 32, 3).astype('float32') / 255.
@@ -158,17 +162,18 @@ def load_mnist():
     y_train = to_categorical(y_train.astype('float32'))
     y_test = to_categorical(y_test.astype('float32'))
     return (x_train, y_train), (x_test, y_test)
-if __name__ == "__main__":
 
+if __name__ == "__main__":
     import os
     import argparse
     from keras.preprocessing.image import ImageDataGenerator
     from keras import callbacks
+    from keras.utils import multi_gpu_model
 
     parser = argparse.ArgumentParser(description="Multi-lane Capsule Network")
 
-    parser.add_argument('--epochs', default=50, type=int)
-    parser.add_argument('--batch_size', default=100, type=int)
+    parser.add_argument('--epochs', default=2, type=int)
+    parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--lr', default=0.001, type=float,
                         help="Initial learning rate")
     parser.add_argument('--lr_decay', default=0.9, type=float,
@@ -188,10 +193,14 @@ if __name__ == "__main__":
                         help="Digit to manipulate")
     parser.add_argument('--dropout', default=0, type=float,
                         help="Percentage of lanes to be dropout per batch")
-    parser.add_argument('--num_lanes', default=4, type=int,
+    parser.add_argument('--num_lanes', default=16, type=int,
                         help="Number of lanes")
-    parser.add_argument('--lane_size', default=1, type=int,
+    parser.add_argument('--lane_size', default=8, type=int,
                         help="Lane size")
+    parser.add_argument('--lane_depth', default=1, type=int,
+                        help="Lane depth")
+    parser.add_argument('--gpus', default=1, type=int,
+                        help="number of gpus to be used")
     parser.add_argument('--lane_type', default=1, type=int,
                         help="Type of the lane")
     parser.add_argument('-w', '--weights', default=None, help="The path of the saved weights. Should be specified when testing")
@@ -207,7 +216,11 @@ if __name__ == "__main__":
                                                     routings=args.routings,
                                                     num_lanes = args.num_lanes,
                                                     lanesize = args.lane_size,
-                                                    lanetype = args.lane_type)
+                                                    lanedepth = args.lane_depth,
+                                                    lanetype = args.lane_type,
+                                                    gpus = args.gpus)
+
     model.summary()
 
+#    gpu_model = multi_gpu_model(model, gpus=args.gpus)
     train(model=model, data=((x_train, y_train), (x_test, y_test)), args=args)
